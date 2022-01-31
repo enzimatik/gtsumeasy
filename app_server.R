@@ -20,24 +20,115 @@ fmt_pvalue_with_stars <- function(x) {
   )
 }
 
+# gtsummary
+gtsummarize <- function(input,data){
+  
+  tbl <- NULL
+  
+  # do data empty?
+  # do variable selected?
+  if (!is.null(data) && !is.null(input$Variables)) {
+    
+    # do grouping is used?
+    if (!is.null(input$Group)) {
+      
+      # is it multi grouping?
+      if(length(input$Group) > 1){
+        labels <- c()
+        tbl.append <- NULL
+        
+        # loop multi grouping
+        for(key in input$Group){
+          tbl.temp <- data %>%
+            select(input$Variables, key) %>%
+            tbl_summary(
+              by = key,
+              digits = list(all_categorical() ~ c(0, 2))
+            ) %>%
+            add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
+            modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
+          
+          labels <- append(labels, key)
+          tbl.append <- append(tbl.append, list(tbl.temp))
+        }
+        tbl <- tbl_merge(
+          tbls = tbl.append,
+          tab_spanner = unlist(title)
+        )
+      }
+      
+      # single grouping
+      else{
+        tbl <- data %>%
+          select(input$Variables, input$Group) %>%
+          tbl_summary(
+            by = input$Group,
+            digits = list(all_categorical() ~ c(0, 2))
+          ) %>%
+          add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
+          modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
+      }
+    } 
+    
+    # simple summary
+    else {
+      tbl <- data %>%
+        select(input$Variables, input$Group) %>%
+        tbl_summary(
+          digits = list(all_categorical() ~ c(0, 2))
+        )
+    }
+  }
+  return(tbl)
+}
+
+
+
 # UI PART
 ui <- fluidPage(
   titlePanel("gtsumeasy"),
   sidebarLayout(
     sidebarPanel(
+      tabsetPanel(
+        type = "tabs",
+        ## SELECT PANEL
+        tabPanel(
+          "Files",
       fileInput("file", label = "Input", placeholder = "xls or csv files"),
       fileInput("rule", label = "Transformation Rule", placeholder = "JSON files"),
-      selectInput("Variables", "Variables", "", multiple = TRUE),
-      # checkboxGroupInput("Variables", "Variables", ""),
-      selectInput("Group", "Group By", "", multiple = TRUE),
-      selectInput("select",
-        label = "Analysis",
-        choices = list(
-          "Summary (Fisher Exact)" = 1,
-          "Survival (Cox PH)" = 2
         ),
-        selected = 1
+      tabPanel(
+        "Data Clean-up", br(),
+        selectInput("varToTransform", "Variable to Transform", ""),
+        selectInput("transformType", "Transformation Type",
+                    choices = list(
+                      "String to String" = 1,
+                      "Range" = 2
+                    ),
+        ),
+        uiOutput("field"),
+        br(),
+        br(),
+        actionButton("transform", label = "Transform"),
+        br(),
+        br(),
+        downloadButton("downloadData", label = "Export Rule as JSON")
       ),
+      tabPanel(
+        "Analysis",
+        
+        selectInput("Variables", "Variables", "", multiple = TRUE),
+        # checkboxGroupInput("Variables", "Variables", ""),
+        selectInput("Group", "Group By", "", multiple = TRUE),
+        
+        selectInput("select",
+                    label = "Analysis",
+                    choices = list(
+                      "Summary (Fisher Exact)" = 1,
+                      "Survival (Cox PH)" = 2
+                    ),
+                    selected = 1
+        ),
       actionButton("action", label = "Analysis"),
       br(),
       br(),
@@ -45,6 +136,7 @@ ui <- fluidPage(
       br(),
       br(),
       actionButton("export", label = "Export Database (.csv)")
+      ))
     ),
     mainPanel(
       tabsetPanel(
@@ -57,23 +149,7 @@ ui <- fluidPage(
         ),
 
         ## TRANSFORM PANEL
-        tabPanel(
-          "Data Clean-up", br(),
-          selectInput("varToTransform", "Variable to Transform", ""),
-          selectInput("transformType", "Transformation Type",
-            choices = list(
-              "String to String" = 1,
-              "Range" = 2
-            ),
-          ),
-          uiOutput("field"),
-          br(),
-          br(),
-          actionButton("transform", label = "Transform"),
-          br(),
-          br(),
-          downloadButton("downloadData", label = "Export Rule as JSON")
-        ),
+        
 
         ## PLOT PANEL
         tabPanel("Plot", br(), gt_output("tab"))
@@ -326,61 +402,9 @@ server <- function(input, output, session) {
 
   ## ANALYSIS
   observeEvent(input$action, {
-    if (!is.null(data.main) && !is.null(input$Variables)) {
-      tbl <- NULL
-      if (!is.null(input$Group)) {
-        if(length(input$Group) > 1){
-          title <- c()
-          tbl.merge <- NULL
-
-          for(key in input$Group){
-            print(key)
-            tbl.sum <- data.main() %>%
-              select(input$Variables, key) %>%
-              # mutate(across(everything(), as.factor)) %>%
-              # mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
-              tbl_summary(
-                by = key,
-                digits = list(all_categorical() ~ c(0, 2))
-              ) %>%
-              add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
-              modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
-
-            tbl.merge <- append(tbl.merge, list(tbl.sum))
-            title <- append(title, key)
-          }
-          # print(summary(tbl.merge))
-          tbl <- tbl_merge(
-            tbls = tbl.merge,
-            tab_spanner = unlist(title)
-            )
-        }
-        else{
-          tbl.sum <- data.main() %>%
-            select(input$Variables, input$Group) %>%
-            # mutate(across(everything(), as.factor)) %>%
-            # mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
-            tbl_summary(
-              by = input$Group,
-              digits = list(all_categorical() ~ c(0, 2))
-            ) %>%
-            add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
-            modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
-
-          tbl <- tbl.sum
-        }
-      } else {
-        tbl.sum <- data.main() %>%
-          select(input$Variables, input$Group) %>%
-          # mutate(across(everything(), as.factor)) %>%
-          # mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
-          tbl_summary(
-            digits = list(all_categorical() ~ c(0, 2))
-          )
-
-        tbl <- tbl.sum
-      }
-    }
+    tbl <- gtsummarize(input,data.main())
+    # print(tbl)
+    
     plot.tbl(tbl)
     output$tab <- render_gt(
       expr = plot.tbl() %>% as_gt(),
@@ -388,30 +412,16 @@ server <- function(input, output, session) {
       width = px(1024)
     )
   })
-  
-  # ## EXPORT
-  # output$downloadPlot <- downloadHandler(
-  #   filename = function() {
-  #     paste("plot.docx", sep = "")
-  #   }
-  #   content = function(con) {
-  #     plot.tbl() %>%  as_flex_table() %>% flextable::save_as_docx(path=con)
-  #   }
-  # )
-  # 
-  # ## EXPORT
-  # output$downloadData <- downloadHandler(
-  #   filename = function() {
-  #     paste("data", sep = "")
-  #   },
-  #   content = function(con) {
-  #     # export.transform <- toJSON(data.transform())
-  #     # print(export.transform)
-  #     # write(export.transform, con)
-  #     print(data.transform())
-  #     saveRDS(data.transform(),con)
-  #   }
-  # )
+
+  # EXPORT
+  output$downloadPlot <- downloadHandler(
+    filename = function() {
+      paste("plot.docx", sep = "")
+    },
+    content = function(con) {
+      plot.tbl() %>%  as_flex_table() %>% flextable::save_as_docx(path=con)
+    }
+  )
 }
 
 shinyApp(ui, server)

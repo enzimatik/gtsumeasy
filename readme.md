@@ -1,2 +1,4 @@
 -[ ] Sample dataset
 -[ ] NA data manipulation
+-[ ] Error handling
+-[ ] Code clean-up
