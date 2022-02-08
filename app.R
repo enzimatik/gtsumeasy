@@ -1,3 +1,4 @@
+# package
 library(readxl)
 library(shiny)
 
@@ -11,6 +12,10 @@ library(labelled)
 
 library(flextable)
 
+library(tidyr)
+library(dplyr)
+library(forcats)
+
 fmt_pvalue_with_stars <- function(x) {
   dplyr::case_when(
     x < 0.001 ~ paste0(style_pvalue(x), "***"),
@@ -21,59 +26,70 @@ fmt_pvalue_with_stars <- function(x) {
 }
 
 # gtsummary
-gtsummarize <- function(input,data){
-  
+gtsummarize <- function(input, data) {
   tbl <- NULL
-  
+
   # do data empty?
   # do variable selected?
   if (!is.null(data) && !is.null(input$Variables)) {
-    
+
     # do grouping is used?
     if (!is.null(input$Group)) {
-      
+
       # is it multi grouping?
-      if(length(input$Group) > 1){
+      if (length(input$Group) > 1) {
         labels <- c()
         tbl.append <- NULL
-        
+
         # loop multi grouping
-        for(key in input$Group){
+        for (key in input$Group) {
           tbl.temp <- data %>%
             select(input$Variables, key) %>%
+            mutate(across(everything(), as.factor)) %>%
+            mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
+            copy_labels_from(data)  %>%
             tbl_summary(
               by = key,
               digits = list(all_categorical() ~ c(0, 2))
             ) %>%
             add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
+            add_overall() %>%
             modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
-          
+
           labels <- append(labels, key)
           tbl.append <- append(tbl.append, list(tbl.temp))
         }
         tbl <- tbl_merge(
           tbls = tbl.append,
-          tab_spanner = unlist(title)
+          tab_spanner = unlist(labels)
         )
       }
-      
+
       # single grouping
-      else{
+      else {
         tbl <- data %>%
           select(input$Variables, input$Group) %>%
+          mutate(across(everything(), as.factor)) %>%
+          mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
+          copy_labels_from(data)  %>%
           tbl_summary(
             by = input$Group,
             digits = list(all_categorical() ~ c(0, 2))
           ) %>%
+          modify_header(label ~ "**Variable**") %>%
           add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
+          add_overall() %>%
           modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
       }
-    } 
-    
+    }
+
     # simple summary
     else {
       tbl <- data %>%
         select(input$Variables, input$Group) %>%
+        mutate(across(everything(), as.factor)) %>%
+        mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
+        copy_labels_from(data)  %>%
         tbl_summary(
           digits = list(all_categorical() ~ c(0, 2))
         )
@@ -94,49 +110,50 @@ ui <- fluidPage(
         ## SELECT PANEL
         tabPanel(
           "Files",
-      fileInput("file", label = "Input", placeholder = "xls or csv files"),
-      fileInput("rule", label = "Transformation Rule", placeholder = "JSON files"),
+          fileInput("file", label = "Input", placeholder = "xls or csv files"),
+          fileInput("rule", label = "Transformation Rule", placeholder = "JSON files"),
         ),
-      tabPanel(
-        "Data Clean-up", br(),
-        selectInput("varToTransform", "Variable to Transform", ""),
-        selectInput("transformType", "Transformation Type",
-                    choices = list(
-                      "String to String" = 1,
-                      "Range" = 2
-                    ),
+        tabPanel(
+          "Data Clean-up", br(),
+          selectInput("varToTransform", "Variable to Transform", ""),
+          selectInput("transformType", "Transformation Type",
+            choices = list(
+              "String to String" = 1,
+              "Range" = 2
+            ),
+          
+          ),
+          textInput("colname", "Column Name", placeholder = "Column Name"),
+          uiOutput("field"),
+          br(),
+          br(),
+          actionButton("transform", label = "Transform"),
+          br(),
+          br(),
+          downloadButton("downloadData", label = "Export Rule as JSON")
         ),
-        uiOutput("field"),
-        br(),
-        br(),
-        actionButton("transform", label = "Transform"),
-        br(),
-        br(),
-        downloadButton("downloadData", label = "Export Rule as JSON")
-      ),
-      tabPanel(
-        "Analysis",
-        
-        selectInput("Variables", "Variables", "", multiple = TRUE),
-        # checkboxGroupInput("Variables", "Variables", ""),
-        selectInput("Group", "Group By", "", multiple = TRUE),
-        
-        selectInput("select",
-                    label = "Analysis",
-                    choices = list(
-                      "Summary (Fisher Exact)" = 1,
-                      "Survival (Cox PH)" = 2
-                    ),
-                    selected = 1
-        ),
-      actionButton("action", label = "Analysis"),
-      br(),
-      br(),
-      downloadButton("downloadPlot", label = "Export Plot (.docx)"),
-      br(),
-      br(),
-      actionButton("export", label = "Export Database (.csv)")
-      ))
+        tabPanel(
+          "Analysis",
+          selectInput("Variables", "Variables", "", multiple = TRUE),
+          # checkboxGroupInput("Variables", "Variables", ""),
+          selectInput("Group", "Group By", "", multiple = TRUE),
+          selectInput("select",
+            label = "Analysis",
+            choices = list(
+              "Summary (Fisher Exact)" = 1,
+              "Survival (Cox PH)" = 2
+            ),
+            selected = 1
+          ),
+          actionButton("action", label = "Analysis"),
+          br(),
+          br(),
+          downloadButton("downloadPlot", label = "Export Plot (.docx)"),
+          br(),
+          br(),
+          actionButton("export", label = "Export Database (.csv)")
+        )
+      )
     ),
     mainPanel(
       tabsetPanel(
@@ -149,7 +166,7 @@ ui <- fluidPage(
         ),
 
         ## TRANSFORM PANEL
-        
+
 
         ## PLOT PANEL
         tabPanel("Plot", br(), gt_output("tab"))
@@ -167,7 +184,7 @@ server <- function(input, output, session) {
   counter.string <- reactiveValues(n = 0)
   counter.range <- reactiveValues(n = 0)
   plot.tbl <- reactiveVal(NULL)
-  
+
   ## LOAD INPUT
   observe({
     file <- input$file
@@ -278,7 +295,6 @@ server <- function(input, output, session) {
 
   ## RM STRING LAST
   observeEvent(input$rmString, {
-    print(paste0("#div_", counter.string$n))
     removeUI(
       selector = paste0("#div_", counter.string$n)
     )
@@ -291,7 +307,7 @@ server <- function(input, output, session) {
     id <- counter.range$n
     remove_id <- paste0("remove_", id)
     div_id <- paste0("div_", id)
-    
+
     insertUI(
       selector = "#addRange",
       where = "beforeBegin",
@@ -302,98 +318,113 @@ server <- function(input, output, session) {
       )
     )
   })
-  
+
   ## RM RANGE LAST
   observeEvent(input$rmRange, {
-    print(paste0("#div_", counter.range$n))
     removeUI(
       selector = paste0("#div_", counter.range$n)
     )
     counter.range$n <- counter.range$n - 1
   })
-  
-  
+
+
   ## READ TRANSFORM INPUT
   observeEvent(input$transform, {
-    temp<-NULL
+    temp <- NULL
     temp$id <- unbox(input$varToTransform)
+    temp$colname <- unbox(input$colname)
     if (input$transformType == "1") {
       temp$type <- unbox("string")
       for (i in 1:counter.string$n) {
-        temp$input <- append(temp$input,input[[paste0("input_", i)]])
-        temp$output <- append(temp$output,input[[paste0("output_", i)]])
+        # print(typeof(input[[paste0("input_", i)]]))
+        
+        if(length(input[[paste0("input_", i)]]) > 0){
+          temp$input <- append(temp$input, input[[paste0("input_", i)]])
+          temp$output <- append(temp$output, input[[paste0("output_", i)]])
+        }
+      }
+    } else if (input$transformType == "2") {
+      temp$type <- unbox("range")
+      # print(typeof(input$cut_))
+      if(length(input$cut_) > 0){
+        temp$cut <- input$cut_
+        temp$input <- input$input_
       }
     }
-    else{
-      temp$type <- unbox("range")
-      temp$cut <- input$cut_
-      temp$input <- input$input_
-    }
-    data.transform(append(data.transform(),list(temp)))
-    # print(data.transform())
+    data.transform(append(data.transform(), list(temp))) 
+    print('setting transform')
+    print(tail(data.transform(), n=1))
+    # exp(data.transform())
     applytransform()
-    
   })
-  
+
   ## APPLY TRANSFORM
-  applytransform <- function(x){
+  applytransform <- function(x) {
     data.temp <- data.main()
-    for(rule in data.transform()){
+    for (rule in data.transform()) {
       id <- toString(rule["id"])
       type <- toString(rule["type"])
-      if(type == "string"){
-        input_ <- rule[["input"]]
-        output_ <- rule[["output"]]
+      
+      if(id %in% colnames(data.temp)){
         
-        data.temp[[paste(id,"_coded",sep="")]] <- data.temp[[id]]
-        coded <- data.temp[[paste(id,"_coded",sep="")]]
-        for(key in 1:length(input_)){
-          coded <- gsub(paste("(?i)",input_[[key]],sep = ""), output_[[key]], coded)
+        colname <- paste(toString(rule["colname"]), "_coded", sep = "")
+        data.temp[[colname]] <- data.temp[[id]]
+        var_label(data.temp[[colname]]) <- toString(rule["colname"])
+        coded <- data.temp[[colname]]
+        
+        if (type == "string") {
+          input_ <- rule[["input"]]
+          output_ <- rule[["output"]]
+          
+          if(colname %in% colnames(data.temp)){
+  
+            for (key in 1:length(input_)) {
+              if(length(input_) > 0){
+                coded <- gsub(paste("(?i)", input_[[key]], sep = ""), output_[[key]], coded)
+              }
+            }
+            print(coded)
+            data.temp[[colname]] <- coded
+          }
+        } else if(type == "range") {
+          cut_ <- rule[["cut"]]
+          input_ <- rule[["input"]]
+          
+          coded <- as.numeric(data.temp[[colname]])
+          if(length(cut_) > 0){
+            coded <- cut(coded,
+             breaks = as.numeric(unlist(strsplit(cut_, split = ","))),
+             labels = unlist(strsplit(input_, split = ","))
+            )
+          }
+          print(coded)
+          data.temp[[colname]] <- coded
         }
-        data.temp[[paste(id,"_coded",sep="")]] <- coded
-        print(coded)
-      }else{
-        cut_ <- rule[["cut"]]
-        input_ <- rule[["input"]]
-        
-        data.temp[[paste(id,"_coded",sep="")]] <- data.temp[[id]]
-        coded <- data.temp[[paste(id,"_coded",sep="")]]
-        
-        print(cut_)
-        print(input_)
-        
-        print(typeof(coded))
-        coded <- cut(as.numeric(coded),
-            breaks=as.numeric(unlist(strsplit(cut_,split=","))),
-            labels = unlist(strsplit(input_,split=",")))
-
-        data.temp[[paste(id,"_coded",sep="")]] <- coded
-
       }
     }
     data.main(data.temp)
   }
 
   ## EXPORT
-  output$downloadData <- downloadHandler(
-    filename = function() {
-      paste("data", sep = "")
-    },
-    content = function(con) {
-      # export.transform <- toJSON(data.transform())
-      # print(export.transform)
-      # write(export.transform, con)
-      print(data.transform())
-      saveRDS(data.transform(),con)
-    }
-  )
-  
+  # exp <- function(data){
+    output$downloadData <- downloadHandler(
+      
+      filename = function() {
+        paste("data", sep = "")
+      },
+      content = function(con) {
+        print('exporting transform')
+        print(tail(data.transform(), n=1))
+        saveRDS(data.transform(), con)
+      }
+    )
+  # }
+
   ## LOAD RULE
-  observe({
+  observeEvent(input$rule, {
     file <- input$rule
     if (!is.null(file)) {
       dat <- readRDS(file$datapath)
-      # dat <- list(fromJSON(file$datapath))
       data.transform(dat)
       applytransform()
     }
@@ -402,9 +433,8 @@ server <- function(input, output, session) {
 
   ## ANALYSIS
   observeEvent(input$action, {
-    tbl <- gtsummarize(input,data.main())
-    # print(tbl)
-    
+    tbl <- gtsummarize(input, data.main())
+
     plot.tbl(tbl)
     output$tab <- render_gt(
       expr = plot.tbl() %>% as_gt(),
@@ -419,7 +449,9 @@ server <- function(input, output, session) {
       paste("plot.docx", sep = "")
     },
     content = function(con) {
-      plot.tbl() %>%  as_flex_table() %>% flextable::save_as_docx(path=con)
+      plot.tbl() %>%
+        as_flex_table() %>%
+        flextable::save_as_docx(path = con)
     }
   )
 }
