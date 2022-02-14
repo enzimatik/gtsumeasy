@@ -1,4 +1,11 @@
+[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip) [![](https://img.shields.io/badge/Shiny-shinyapps.io-blue?style=flat&labelColor=white&logo=RStudio&logoColor=blue)](https://n2o2b1-enzimatik.shinyapps.io/gtsumeasy/)
+
+## gtsumEASY
+
+gtsumEASY is a data analysis app written in R Shiny for creating publication-ready analytical and summary tables utilizing the {gtsummary} package. The gtsumeasy graphical user interface enable EASY data wrangling, analysis, and export for everyone in any field.
+
 #to do list
+
 - [x] basic UI
 - [x] upload data file
 - [x] upload meta file
