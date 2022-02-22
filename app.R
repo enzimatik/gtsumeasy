@@ -37,37 +37,30 @@ gtsummarize <- function(input, data) {
     if (!is.null(input$Group)) {
 
       # is it multi grouping?
-      if (length(input$Group) > 1) {
+      if(!is.null(input$Strata)) {
         labels <- c()
         tbl.append <- NULL
-
-        # loop multi grouping
-        for (key in input$Group) {
-          tbl.temp <- data %>%
-            select(input$Variables, key) %>%
-            mutate(across(everything(), as.factor)) %>%
-            mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
-            copy_labels_from(data)  %>%
-            tbl_summary(
-              by = key,
-              digits = list(all_categorical() ~ c(0, 2))
-            ) %>%
-            add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
-            add_overall() %>%
-            modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
-
-          labels <- append(labels, key)
-          tbl.append <- append(tbl.append, list(tbl.temp))
-        }
-        tbl <- tbl_merge(
-          tbls = tbl.append,
-          tab_spanner = unlist(labels)
-        )
-      }
-
-      # single grouping
-      else {
-        tbl <- data %>%
+        
+        tbl.st1 <- data %>%
+          select(input$Variables, input$Group, input$Strata) %>%
+          mutate(across(everything(), as.factor)) %>%
+          mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
+          copy_labels_from(data)  %>%
+          tbl_strata(
+            strata = input$Strata,
+            .tbl_fun =
+              ~ .x %>%
+              tbl_summary(
+                by = input$Group,
+                digits = list(all_categorical() ~ c(0, 2))
+              ) %>%
+              modify_header(label ~ "**Variable**") %>%
+              add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
+              # add_overall() %>%
+              modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001"),
+            .header = "**{strata}**, N = {n}"
+            )
+        tbl.st2 <- data %>%
           select(input$Variables, input$Group) %>%
           mutate(across(everything(), as.factor)) %>%
           mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
@@ -78,8 +71,56 @@ gtsummarize <- function(input, data) {
           ) %>%
           modify_header(label ~ "**Variable**") %>%
           add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
-          add_overall() %>%
           modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
+        tbl <- tbl_merge(
+          tbls = list(tbl.st2, tbl.st1), tab_spanner = NULL
+        )
+      }
+      else{
+        if (length(input$Group) > 1) {
+          labels <- c()
+          tbl.append <- NULL
+  
+          # loop multi grouping
+          for (key in input$Group) {
+            tbl.temp <- data %>%
+              select(input$Variables, key) %>%
+              mutate(across(everything(), as.factor)) %>%
+              mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
+              copy_labels_from(data)  %>%
+              tbl_summary(
+                by = key,
+                digits = list(all_categorical() ~ c(0, 2))
+              ) %>%
+              add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
+              add_overall() %>%
+              modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
+  
+            labels <- append(labels, key)
+            tbl.append <- append(tbl.append, list(tbl.temp))
+          }
+          tbl <- tbl_merge(
+            tbls = tbl.append,
+            tab_spanner = unlist(labels)
+          )
+        }
+  
+        # single grouping
+        else {
+          tbl <- data %>%
+            select(input$Variables, input$Group) %>%
+            mutate(across(everything(), as.factor)) %>%
+            mutate(across(everything(), fct_explicit_na, "Unknown")) %>%
+            copy_labels_from(data)  %>%
+            tbl_summary(
+              by = input$Group,
+              digits = list(all_categorical() ~ c(0, 2))
+            ) %>%
+            modify_header(label ~ "**Variable**") %>%
+            add_p(all_categorical() ~ "fisher.test", pvalue_fun = fmt_pvalue_with_stars) %>%
+            add_overall() %>%
+            modify_footnote(p.value ~ "Fisher's exact test *p<0.05; **p<0.01; ***p<0.001")
+        }
       }
     }
 
@@ -137,6 +178,7 @@ ui <- fluidPage(
           selectInput("Variables", "Variables", "", multiple = TRUE),
           # checkboxGroupInput("Variables", "Variables", ""),
           selectInput("Group", "Group By", "", multiple = TRUE),
+          selectInput("Strata", "Strata By", "", multiple = TRUE),
           selectInput("select",
             label = "Analysis",
             choices = list(
@@ -211,6 +253,15 @@ server <- function(input, output, session) {
       choices = colnames(data.main())
     )
   })
+  
+  observe({
+    updateSelectInput(session,
+      "Strata",
+      label = "Strata By",
+      choices = colnames(data.main())
+    )
+  })
+  
   ## GET SELECTED DB
   dataSelected <- reactive({
     data.main()[, c(input$Variables, input$Group)]
